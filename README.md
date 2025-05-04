@@ -1,36 +1,50 @@
-[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/QM_DugRQ)
-# PBA Assignment - POLKADOT-SDK / FRAME
+<h1 align="center">Multisig Substrate Pallet</h1>
 
-## !! See [ASSIGNMENT.md](./ASSIGNMENT.md) for instructions to complete this assignment !!
+## Overview
 
----
+This project implements a **stateful multi-signature pallet** for the Substrate runtime that enables multiple members to manage a shared account holding on-chain funds. Members can propose dispatchable calls on behalf of the multisig account, each tied to a unique transaction.
 
-## About This Template
+## Features
+- Shared Account Control — Multisig accounts owned by a group of members.
+- Proposal System — Transactions are proposed and tied to a dispatched call then executed once approved.
+- Voting Mechanism — Members vote to approve or reject a proposed transaction.
+- Cancellation Support — Proposed transactions can be canceled before execution.
+- Multisig Deletion — Multisig accounts can be deleted when no longer used or needed.
 
-This template is based on the `polkadot-sdk-minimal-template`. This is the most bare-bone template
-that ships with `polkadot-sdk`, and most notably has no consensus mechanism. That is, any node in
-the network can author blocks. This makes it possible to easily run a single-node network with any
-block-time that we wish.
+## Instructions
 
-### ☯️ `omni-node`-only
-
-Moreover, this template has been stripped to only contain the `runtime` part of the template. This
-is because we provide you with an omni-node that can run this runtime. An `omni-node` is broadly a
+An `omni-node` is broadly a
 substrate-based node that has no dependency to any given runtime, and can run a wide spectrum of
 runtimes. The `omni-node` provided below is based on the aforementioned template and therefore has
 no consensus engine baked into it.
 
-## How to Run
+### Pallet
 
-### Individual Pallets
+```rust
+impl pallet_multisig::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type NativeBalance = Balances;
+	type RuntimeCall = RuntimeCall;
+	type RuntimeHoldReason = RuntimeHoldReason;
+	type MaxMembers = ConstU32<10>;
+	type DefaultThreshold = ConstU32<6>;
+	type DefaultExpirationBlocks = ConstU32<100>;
+	type MultisigDeposit = ConstU128<10>;
+}
+
+parameter_types! {
+	pub const AssetDeposit: Balance = 100;
+	pub const ApprovalDeposit: Balance = 1;
+	pub const StringLimit: u32 = 50;
+	pub const MetadataDepositBase: Balance = 10;
+	pub const MetadataDepositPerByte: Balance = 1;
+}
+```
 
 To test while developing, without a full build:
 
 ```sh
-cargo t -p pallet-dpos
-cargo t -p pallet-free-tx
 cargo t -p pallet-multisig
-cargo t -p pallet-treasury
 ```
 
 ### Entire Runtime
@@ -96,3 +110,54 @@ And more details like:
   "tokenSymbol": "PBA"
 }
 ```
+## Implementation
+
+The multisig pallet was implemented with the intention of being safe and the usage of minimal storage:
+- `Multisigs` - The multisigs are stored using `StorageMap` hashed to with a prefix to be more unbalanced in the trie for easier lookup.
+- `Transactions` - The transactions are stored using a `StorageDoubleMap` with a prefix as well for an unbalanced lookup in the trie. The first is the hashed key of the Multisig the transactions belong to. The second key is the hash of the transaction themselves.
+- `MultisigNonce` - A `StorageValue` of the nonce for every new multisig created.
+
+some configurable constants were also provided:
+- `MultisigDeposit` - Deposit to be taken on creation of a multisig account by the creator. To be returned to the creator on multisig account deletion.
+- `MaxMembers` - Max limit of members allowed to join the multisig.
+- `DefaultThreshold` - Default threshold set for a proposed transaction to be executed or rejected.
+- `DefaultExpirationBlocks` - Default blocks to be added to the created block to find the expiry block.
+
+Here are all the dispatch extrinsic calls:
+- `create_multisig`
+- `fund_multisig`
+- `propose_transaction`
+- `vote`
+- `submit_transaction`
+- `cancel_transaction`
+- `delete_multisig`
+
+I relied on enums to provide different states/statuses:
+- `Vote`
+- `TransactionStatus`
+
+The multisig id is generated using the nonce so every multisig account id will be different. A configurable deposit is required to create the multisig which helps prevent users from spamming creation of them. There are several safety checks to ensure that the creator of the multisig is also wanting to be a member. 
+
+A fund dispatch was created that bypasses the proposal process and allows non members to fund the multisig. A member has the ability to propose a transaction where a call can be stored and is hashed for verifability during submission. The proposed transaction is then voted on with the option of "Approve" or "Reject" through the `Vote` enum. Once the transaction has reached its threshold for approvals the hash of the dispatch call is verified and executed. For opposite the transaction is canceled.
+
+ All transactions are deleted from storage despite whether executed or canceled. A user can also cancel a transaction during it's proposal process and prior to a threshold being met. Although, that cancel transaction must be proposed and voted upon before executing. In the case that a multisig is no longer necesary or used there is the ability to delete the multisig, but it must go through the proposal process in order to execute. All of this is implemented with many safety checks in place ensuring a multisig account and its member's funds are safe.
+
+## Learning Highlights
+- First time working with such an advanced level of Rust including the generic types and macro usage.
+	- I feel as if my rust and programming skills as a whole leveled up from this project. I loved the modularity and reusability that the generic types brought to the development process. I'm excited for my next Rust project as I will be much better because of this.
+- Working in the runtime of a blockchain brings on a whole new level of thoughtful software development.
+- I have a new understanding of how the blockchain fully works after building a runtime on it.
+- The list can really go and on...
+
+## Future Improvements
+While I feel like I accomplished a lot in the short time given for this project here are some improvements I have in mind:
+- Add more sad path tests for better test coverage.
+- Simulate “attack vectors” by chaining extrinsics and testing state transitions under edge conditions or race scenarios with better integration tests.
+- Replace the current +1 workaround for taking a deposit with a more accurate and scalable method to account for transfer fees when reserving the multisig deposit.
+- Introduce more helper functions in the test mocks to streamline repetitive setup logic and improve test readability.
+- Break larger dispatch functions into smaller, implementaion functions to improve maintainability and reduce cognitive complexity.
+- Take a deposit for proposed transactions to prevent spamming.
+- Setup benchmarking to accurately calculate the weights of each call.
+- A migration plan to a stateless design similar to what the polkadot sdk multisig implements. 
+
+Created by Cameron Aragon - PBA Assignment
